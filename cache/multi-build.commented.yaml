@@ -1,0 +1,280 @@
+#=================================================
+# https://github.com/P3TERX/Actions-OpenWrt
+# Description: Build OpenWrt using GitHub Actions
+# Lisence: MIT
+# Author: P3TERX
+# Blog: https://p3terx.com
+#=================================================
+
+# 工作流的名称，将显示在 GitHub Actions 的界面上
+name: build-docker-image
+
+# 设置整个工作流中可用的环境变量
+env:
+  # 定义 OpenWrt 官方镜像构建器（Image Builder）的下载地址前缀
+  PREFIX_URL: https://storage.openwrt.cc/snapshots/targets
+
+# 定义触发工作流的事件
+on:
+  # 允许手动触发工作流
+  workflow_dispatch:
+    inputs:
+      # 定义一个手动触发时的输入参数
+      INPUT_TARGET:
+        description: "要构建的目标平台 (platform/target/subtarget)"
+        required: false
+        default: "all"
+  # 设置定时任务，在每天的 UTC 时间 0 点 0 分自动触
+  schedule:
+    - cron: 0 0 * * *
+
+# 定义工作流中的所有作业（jobs）
+jobs:
+  # 第一个作业：生成配置
+  Config:
+    name: 1-generate-build-config
+    # 指定运行该作业的虚拟机环境
+    runs-on: ubuntu-latest
+    # 定义该作业的输出，可供其他作业使用
+    outputs:
+      # 输出一个名为 TARGETS 的变量，内容是构建目标的 JSON 数组
+      TARGETS: ${{ steps.find-targets.outputs.TARGETS }}
+
+    # 定义该作业中的步骤
+    steps:
+      # 步骤一：检出代码
+      - name: 1.1-checkout
+        # 使用官方的 actions/checkout@main 动作来获取仓库代码
+        uses: actions/checkout@main
+
+      # 步骤二：查找并确定需要构建的目标平台
+      - name: 1.2-find-targets
+        id: find-targets
+        env:
+          # 从手动触发的输入中获取目标平台
+          INPUT_TARGET: ${{ github.event.inputs.INPUT_TARGET }}
+          # 如果输入是 "all" 或者为空，则从 config/platform.config 文件中读取所有平台
+            # 否则，使用手动输入指定的平台
+          # 将平台列表格式化为 JSON 数组，用于后续的 matrix 构建策略
+          # 设置步骤的输出
+        run: |
+          if [ "$INPUT_TARGET" = "all" ] || [ "$INPUT_TARGET" = "" ]; then
+            export TARGETS="$(cat config/platform.config)"
+          else
+            export TARGETS="$INPUT_TARGET"
+          fi
+          JSON='''{"config": ["default"], "targets":['''
+          FIRST=1
+          for TARGET in $TARGETS; do
+          [[ $FIRST -ne 1 ]] && JSON="$JSON"'',''
+          JSON="$JSON"''"'"${TARGET}"''"'
+          FIRST=0
+          done
+          JSON="$JSON"''']}' ''
+          echo $JSON
+          echo "::set-output name=TARGETS::$JSON"
+
+  # 第二个作业：构建 Docker 镜像
+  Docker-Images:
+    # 作业名称会动态显示当前构建的平台
+    name: 2-${{ matrix.TARGETS }}
+    # 依赖于 Config 作业，必须在 Config 作业成功后才能运行
+    needs: [Config]
+    runs-on: ubuntu-latest
+    # 定义构建矩阵策略
+    strategy:
+      # 如果矩阵中的一个构建失败，其他构建不会被取消
+      fail-fast: false
+      # 从 Config 业的输出中获取平台列表，为每个平台创建一个独立的构建任务
+      matrix: ${{fromJson(needs.Config.outputs.TARGETS)}}
+
+    # 定义该作业中的步骤
+    steps:
+      # 步骤一：检出代码
+      - name: Checkout
+        uses: actions/checkout@main
+
+      # 步骤二：初始化构建环境
+      - name: 2.1-initialization-environment
+        env:
+          # 设置为非交互模式，避免 apt-get 安装时卡住
+          DEBIAN_FRONTEND: noninteractive
+          # 更新软件包列表并安装构建所需的依赖
+        run: |
+          sudo -E apt-get -qq update
+          sudo -E apt-get -qq install build-essential libncurses5-dev libncursesw5-dev \
+            zlib1g-dev gawk git gettext libssl-dev xsltproc rsync wget unzip python3 qemu-utils
+
+      # 步骤三：设置 QEMU，用于模拟不同的 CPU 架构，实现跨平台构建
+      - name: 2.3-set-up-QEMU
+        uses: docker/setup-qemu-action@v1
+
+      # 步骤四：设置 Docker Buildx，一个 Docker 的扩展，用于构建多架构镜像
+      - name: 2.4-set-up-docker-buildx
+        uses: docker/setup-buildx-action@v1
+
+      # 步骤五：登录 DockerHub
+      - name: 2.5-login-to-docker-hub
+        uses: docker/login-action@v1
+        with:
+          # 使用仓库 secrets 中存储的用户名和密码
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PWD }}
+
+      # 步骤七：从平台字符串中生成并设置多个环境变量
+      - name: 2.6-generate-variables
+        id: env
+          # 解析平台字符串，例如 "x86_64/x86/64/linux-amd64/amd64"
+        run: |
+          export DEVICE_PLATFORM=$(echo ${{ matrix.TARGETS }} | awk -F '/' '{print $1}')
+          echo "DEVICE_PLATFORM=$DEVICE_PLATFORM" >> $GITHUB_ENV
+          export DEVICE_TARGET=$(echo ${{ matrix.TARGETS }} | awk -F '/' '{print $2}')
+          echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
+          export DEVICE_SUBTARGET=$(echo ${{ matrix.TARGETS }} | awk -F '/' '{print $3}')
+          echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
+          export DOCKER_IMAGE_ARCH=$(echo ${{ matrix.TARGETS }} | awk -F '/' '{print $4}' | sed 's/-/\\\//g')
+          echo "DOCKER_IMAGE_ARCH=$DOCKER_IMAGE_ARCH" >> $GITHUB_ENV
+          export DOCKER_EXTERA_TAG=$(echo ${{ matrix.TARGETS }} | awk -F '/' '{print $5}')
+          echo "DOCKER_EXTERA_TAG=$DOCKER_EXTERA_TAG" >> $GITHUB_ENV
+
+      # 步骤八：下载对应平台的 Image Builder
+      - name: 2.7-download-image-builder
+        run: |
+          wget -q $PREFIX_URL/$DEVICE_TARGET/$DEVICE_SUBTARGET/immortalwrt-imagebuilder-$DEVICE_TARGET-$DEVICE_SUBTARGET.Linux-x86_64.tar.xz
+
+      # 步骤九：设置 Mini 版的 Image Builder 环境
+      - name: 2.8-set-mini-image-builder
+          # 解压 Image Builder
+          # 复制并配置软件源
+          # 复制自定义文件
+          # 获取内核版本号并更新 opkg 配置文件
+        run: |
+          tar -xJf *.tar.xz
+          cd immortalwrt-imagebuilder-$DEVICE_TARGET-$DEVICE_SUBTARGET.Linux-x86_64
+          cp -f $GITHUB_WORKSPACE/config/repositories.conf .
+          sed -i "s/DEVICE_SUBTARGET/$DEVICE_SUBTARGET/g; \
+            s/DEVICE_TARGET/$DEVICE_TARGET/g; \
+            s/DEVICE_PLATFORM/$DEVICE_PLATFORM/g" repositories.conf
+          cp -rf $GITHUB_WORKSPACE/files .
+          chmod +x files/etc/rc.local
+          export KERNEL_VERSION="$(ls packages | grep kernel | awk -F '_' '{print $2}')"
+          sed -i "s/DEVICE_SUBTARGET/$DEVICE_SUBTARGET/g; \
+            s/DEVICE_TARGET/$DEVICE_TARGET/g; \
+            s/KERNEL_VERSION/$KERNEL_VERSION/g; \
+            s/DEVICE_PLATFORM/$DEVICE_PLATFORM/g" files/etc/opkg/distfeeds.conf
+
+      # 步骤十：构建 Mini 版的 RootFS (根文件系统)
+      - name: 2.9-build-mini-RootFS
+          # 修改配置，禁用 squashfs 和 ext4 文件系统，只生成 tar.gz 格式的 rootfs
+          # 从配置文件中读取 Mini 版的软件包列表
+          # 执行构建命令
+          # 将生成的 rootfs 复制到工作区根目录
+          # 清理 Image Builder 目录
+        run: |
+          cd immortalwrt-imagebuilder-$DEVICE_TARGET-$DEVICE_SUBTARGET.Linux-x86_64
+          sed -i "/CONFIG_TARGET_ROOTFS_SQUASHFS/s/.*/# CONFIG_TARGET_ROOTFS_SQUASHFS is not set/; \
+            /CONFIG_TARGET_ROOTFS_EXT4FS/s/.*/# CONFIG_TARGET_ROOTFS_EXT4FS is not set/" .config
+          export CONFIG_MINI_PACKAGES=$(cat $GITHUB_WORKSPACE/config/mini-packages.config | tr -s "\n" " ")
+          make image PACKAGES="$CONFIG_MINI_PACKAGES" FILES="files"
+          cp bin/targets/$DEVICE_TARGET/$DEVICE_SUBTARGET/*rootfs.tar.gz $GITHUB_WORKSPACE
+          cd $GITHUB_WORKSPACE
+          rm -rf immortalwrt-imagebuilder-$DEVICE_TARGET-$DEVICE_SUBTARGET.Linux-x86_64
+
+      # 步骤十一：构建并推送 Mini 版镜像 (默认标签)
+      - name: 2.11-build & Push Mini Image (Default)
+        # 仅当 DOCKER_EXTERA_TAG 为空时执行
+        if: env.DOCKER_EXTERA_TAG == null
+        uses: docker/build-push-action@v2
+        with:
+          # 指定构建的平台架构
+          platforms: ${{ env.DOCKER_IMAGE_ARCH }}
+          # 指定 Dockerfile 路径
+          file: Dockerfile
+          context: .
+          # 推送到镜像仓库
+          push: true
+          # 定义镜像的标签
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/openwrt-mini:${{ env.DEVICE_PLATFORM }}
+            registry.cn-shanghai.aliyuncs.com/${{ secrets.ALIYUN_NAMESPACES }}/openwrt-mini:${{ env.DEVICE_PLATFORM }}
+
+      # 步骤十二：构建并推送 Mini 版镜像 (带额外标签)
+      - name: 2.12-build & Push Mini Image (Extra Tag)
+        # 仅当 DOCKER_EXTERA_TAG 不为空时执行
+        if: env.DOCKER_EXTERA_TAG != null
+        uses: docker/build-push-action@v2
+        with:
+          platforms: ${{ env.DOCKER_IMAGE_ARCH }}
+          file: Dockerfile
+          context: .
+          push: true
+          # 定义镜像的标签，包含默认标签和额外标签
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/openwrt-mini:${{ env.DEVICE_PLATFORM }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/openwrt-mini:${{ env.DOCKER_EXTERA_TAG }}
+            registry.cn-shanghai.aliyuncs.com/${{ secrets.ALIYUN_NAMESPACES }}/openwrt-mini:${{ env.DEVICE_PLATFORM }}
+            registry.cn-shanghai.aliyuncs.com/${{ secrets.ALIYUN_NAMESPACES }}/openwrt-mini:${{ env.DOCKER_EXTERA_TAG }}
+
+      # 步骤十三：设置 Normal 版的 Image Builder 环境 (重复之前的解压和配置过程)
+      - name: 2.13-set-normal-image-builder
+        run: |
+          tar -xJf *.tar.xz
+          cd immortalwrt-imagebuilder-$DEVICE_TARGET-$DEVICE_SUBTARGET.Linux-x86_64
+          cp -f $GITHUB_WORKSPACE/config/repositories.conf .
+          sed -i "s/DEVICE_SUBTARGET/$DEVICE_SUBTARGET/g; \
+            s/DEVICE_TARGET/$DEVICE_TARGET/g; \
+            s/DEVICE_PLATFORM/$DEVICE_PLATFORM/g" repositories.conf
+          cp -rf $GITHUB_WORKSPACE/files .
+          chmod +x files/etc/rc.local
+          export KERNEL_VERSION="$(ls packages | grep kernel | awk -F '_' '{print $2}')"
+          sed -i "s/DEVICE_SUBTARGET/$DEVICE_SUBTARGET/g; \
+            s/DEVICE_TARGET/$DEVICE_TARGET/g; \
+            s/KERNEL_VERSION/$KERNEL_VERSION/g; \
+            s/DEVICE_PLATFORM/$DEVICE_PLATFORM/g" files/etc/opkg/distfeeds.conf
+
+      # 步骤十四：构建 Normal 版的 RootFS
+      - name: 2.14-build-normal-RootFS
+          # 运预设的终端工具安装脚本
+          # 禁用不需要的文件系统格式
+          # 从配置文件中读取 Normal 版的软件包列表
+          # 执行构建
+          # 复制 rootfs 并清理
+        run: |
+          cd immortalwrt-imagebuilder-$DEVICE_TARGET-$DEVICE_SUBTARGET.Linux-x86_64
+          chmod +x $GITHUB_WORKSPACE/scripts/*
+          $GITHUB_WORKSPACE/scripts/preset-terminal-tools.sh
+          sed -i "/CONFIG_TARGET_ROOTFS_SQUASHFS/s/.*/# CONFIG_TARGET_ROOTFS_SQUASHFS is not set/; \
+            /CONFIG_TARGET_ROOTFS_EXT4FS/s/.*/# CONFIG_TARGET_ROOTFS_EXT4FS is not set/" .config
+          export CONFIG_NORMAL_PACKAGES=$(cat $GITHUB_WORKSPACE/config/normal-packages.config | tr -s "\n" " ")
+          make image PACKAGES="$CONFIG_NORMAL_PACKAGES" FILES="files"
+          cp bin/targets/$DEVICE_TARGET/$DEVICE_SUBTARGET/*rootfs.tar.gz $GITHUB_WORKSPACE
+          cd $GITHUB_WORKSPACE
+          rm -rf immortalwrt-imagebuilder*
+
+      # 步骤十五：构建并推送 Normal 版镜像 (默认标签)
+      - name: 2.15-build & Push Normal Image (Default)
+        if: env.DOCKER_EXTERA_TAG == null
+        uses: docker/build-push-action@v2
+        with:
+          platforms: ${{ env.DOCKER_IMAGE_ARCH }}
+          file: Dockerfile
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/openwrt:${{ env.DEVICE_PLATFORM }}
+            registry.cn-shanghai.aliyuncs.com/${{ secrets.ALIYUN_NAMESPACES }}/openwrt:${{ env.DEVICE_PLATFORM }}
+
+      # 步骤十六：构建并推送 Normal 版镜像 (带额外标签)
+      - name: 2.16-build & Push Normal Image (Extra Tag)
+        if: env.DOCKER_EXTERA_TAG != null
+        uses: docker/build-push-action@v2
+        with:
+          platforms: ${{ env.DOCKER_IMAGE_ARCH }}
+          file: Dockerfile
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/openwrt:${{ env.DEVICE_PLATFORM }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/openwrt:${{ env.DOCKER_EXTERA_TAG }}
+            registry.cn-shanghai.aliyuncs.com/${{ secrets.ALIYUN_NAMESPACES }}/openwrt:${{ env.DEVICE_PLATFORM }}
+            registry.cn-shanghai.aliyuncs.com/${{ secrets.ALIYUN_NAMESPACES }}/openwrt:${{ env.DOCKER_EXTERA_TAG }}

@@ -1,8 +1,8 @@
 name: immortalwrt-build-image-actions
 
 env:
-  PREFIX_URL: https://downloads.immortalwrt.org/releases/24.10-SNAPSHOT/targets/
-  DEVICE_VERSION: 24.10-SNAPSHOT
+PREFIX_URL: https://storage.openwrt.cc/snapshots/targets
+  DEVICE_VERSION: 24.10.3
 
 on:
   workflow_dispatch:
