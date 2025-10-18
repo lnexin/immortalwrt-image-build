@@ -1,4 +1,4 @@
-name: onlyx8664-docker
+name: amd64-docker
 
 on:
   workflow_dispatch:
@@ -12,11 +12,11 @@ on:
         required: true
         default: "yes"
       enable_pppoe:
-        description: "是否启用 PPPoE 首启配置 (yes/no)"
+        description: "是否启用 PPPoE 配置 (yes/no)"
         required: true
         default: "no"
       custom_packages:
-        description: "自定义附加/移除的包（留空为默认）"
+        description: "追加/移除的软件包，留空为默认"
         required: false
         default: ""
       docker_push:
@@ -24,8 +24,6 @@ on:
         required: true
         default: "false"
   push:
-    paths:
-      - 'immortalwrt-image-build/**'
 
 jobs:
   build:
@@ -50,11 +48,7 @@ jobs:
           ENABLE_PPPOE: ${{ inputs.enable_pppoe }}
           CUSTOM_PACKAGES: ${{ inputs.custom_packages }}
         run: |
-          if [ -f immortalwrt-image-build/build.sh ]; then
-            bash immortalwrt-image-build/build.sh -d
-          else
-            bash build.sh -d
-          fi
+          bash build.sh -d
 
       - name: Build (push with defaults)
         if: ${{ github.event_name == 'push' }}
@@ -64,11 +58,7 @@ jobs:
           ENABLE_PPPOE: "no"
           CUSTOM_PACKAGES: ""
         run: |
-          if [ -f immortalwrt-image-build/build.sh ]; then
-            bash immortalwrt-image-build/build.sh -d
-          else
-            bash build.sh -d
-          fi
+          bash build.sh -d
 
       - name: Push Docker image
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.docker_push == 'true' }}

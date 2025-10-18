@@ -11,6 +11,7 @@ FILES_DIR="$SCRIPT_DIR/files"
 VERSION="24.10.3"
 IMAGEBUILDER_URL_DEFAULT="https://downloads.immortalwrt.org/releases/${VERSION}/targets/x86/64/immortalwrt-imagebuilder-${VERSION}-x86-64.Linux-x86_64.tar.xz"
 IMAGEBUILDER_URL="${IMAGEBUILDER_URL:-$IMAGEBUILDER_URL_DEFAULT}"
+WGET_OPTS="--tries=3 --timeout=30 --retry-connrefused"
 
 # Docker 标签
 DOCKER_TAG1_DEFAULT="immortalwrt/x86-64:24.10"
@@ -25,6 +26,10 @@ ENABLE_PPPOE="${ENABLE_PPPOE:-no}"
 PPPOE_ACCOUNT="${PPPOE_ACCOUNT:-}"
 PPPOE_PASSWORD="${PPPOE_PASSWORD:-}"
 CUSTOM_PACKAGES="${CUSTOM_PACKAGES:-}"
+# 兼容命名：ROOTFS_PARTSIZE 优先，未提供则沿用 PROFILE 数值
+ROOTFS_PARTSIZE="${ROOTFS_PARTSIZE:-$PROFILE}"
+# 可选：注入自定义路由器 IP（供 99-custom.sh 读取）
+CUSTOM_ROUTER_IP="${CUSTOM_ROUTER_IP:-}"
 
 DOCKER_BUILD=0
 while getopts ":dt:" opt; do
@@ -36,7 +41,7 @@ while getopts ":dt:" opt; do
 done
 
 echo "[immortalwrt-image-build] VERSION=$VERSION"
-echo "[immortalwrt-image-build] PROFILE=$PROFILE INCLUDE_DOCKER=$INCLUDE_DOCKER"
+echo "[immortalwrt-image-build] PROFILE=$PROFILE ROOTFS_PARTSIZE=${ROOTFS_PARTSIZE:-$PROFILE} INCLUDE_DOCKER=$INCLUDE_DOCKER"
 echo "[immortalwrt-image-build] ENABLE_PPPOE=$ENABLE_PPPOE"
 echo "[immortalwrt-image-build] IMAGEBUILDER_URL=$IMAGEBUILDER_URL"
 echo "[immortalwrt-image-build] DOCKER_TAGS=$DOCKER_TAG1,$DOCKER_TAG2 (build=$DOCKER_BUILD)"
@@ -46,7 +51,7 @@ mkdir -p "$WORK_DIR" "$OUTPUT_DIR"
 IB_TAR="$WORK_DIR/ib.tar.xz"
 if [ ! -f "$IB_TAR" ]; then
   echo "[immortalwrt-image-build] 下载 ImageBuilder..."
-  wget -qO "$IB_TAR" "$IMAGEBUILDER_URL"
+  wget $WGET_OPTS -qO "$IB_TAR" "$IMAGEBUILDER_URL"
 fi
 
 echo "[immortalwrt-image-build] 解压 ImageBuilder..."
@@ -71,6 +76,12 @@ pppoe_account=${PPPOE_ACCOUNT}
 pppoe_password=${PPPOE_PASSWORD}
 EOF
 
+# 可选：通过环境变量注入自定义路由器 IP
+if [ -n "${CUSTOM_ROUTER_IP:-}" ]; then
+  echo "$CUSTOM_ROUTER_IP" > "$IB_DIR/files/etc/config/custom_router_ip.txt"
+  echo "[immortalwrt-image-build] 已写入自定义路由器 IP: $CUSTOM_ROUTER_IP"
+fi
+
 # 拉取第三方包（run/ipk）并汇总到 packages/
 echo "[immortalwrt-image-build] 拉取第三方包（store/run/x86）..."
 TMP_STORE="$WORK_DIR/store-run-repo"
@@ -82,8 +93,8 @@ echo "[immortalwrt-image-build] 汇总 .ipk 至 ImageBuilder/packages"
 ( cd "$IB_DIR" && sh "$SCRIPT_DIR/shell/prepare-packages.sh" )
 # 如存在本地 IPK，则为 packages/ 建立索引，便于 ImageBuilder 识别
 if [ -d "$IB_DIR/packages" ] && ls "$IB_DIR/packages"/*.ipk >/dev/null 2>&1; then
-  echo "[immortalwrt-image-build] 为本地 packages 建立索引(make package_index)"
-  ( cd "$IB_DIR" && make package_index )
+  echo "[immortalwrt-image-build] 为本地 packages 建立索引(make package/index)"
+  ( cd "$IB_DIR" && make package/index )
 fi
 
 # 包列表（与仓库 x86-64/build24.sh 对齐，可根据需要增删）
@@ -122,15 +133,15 @@ if echo "$PACKAGES" | grep -q "luci-app-openclash"; then
   echo "[immortalwrt-image-build] 检测到 openclash，下载 core & 数据文件"
   mkdir -p "$IB_DIR/files/etc/openclash/core"
   META_URL="https://raw.githubusercontent.com/vernesong/OpenClash/core/master/meta/clash-linux-amd64.tar.gz"
-  wget -qO- "$META_URL" | tar xOvz > "$IB_DIR/files/etc/openclash/core/clash_meta"
+  wget $WGET_OPTS -qO- "$META_URL" | tar xOvz > "$IB_DIR/files/etc/openclash/core/clash_meta"
   chmod +x "$IB_DIR/files/etc/openclash/core/clash_meta"
-  wget -q https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat -O "$IB_DIR/files/etc/openclash/GeoIP.dat"
-  wget -q https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat -O "$IB_DIR/files/etc/openclash/GeoSite.dat"
+  wget $WGET_OPTS -q https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat -O "$IB_DIR/files/etc/openclash/GeoIP.dat"
+  wget $WGET_OPTS -q https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat -O "$IB_DIR/files/etc/openclash/GeoSite.dat"
 fi
 
 echo "[immortalwrt-image-build] 开始 make image..."
 ( cd "$IB_DIR" && \
-  make image PROFILE="generic" PACKAGES="$PACKAGES" FILES="$IB_DIR/files" ROOTFS_PARTSIZE="$PROFILE" )
+  make image PROFILE="generic" PACKAGES="$PACKAGES" FILES="$IB_DIR/files" ROOTFS_PARTSIZE="${ROOTFS_PARTSIZE:-$PROFILE}" )
 
 echo "[immortalwrt-image-build] 搜索 rootfs tar..."
 ROOTFS_TAR=$(find "$IB_DIR/bin/targets/x86/64" -type f -name "*rootfs.tar.gz" | head -n 1 || true)
@@ -148,3 +159,4 @@ if [ "$DOCKER_BUILD" -eq 1 ]; then
 fi
 
 echo "[immortalwrt-image-build] 完成"
+
