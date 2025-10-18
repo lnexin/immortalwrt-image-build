@@ -16,45 +16,59 @@ if [ ! -d "$PKG_DIR" ] || ! ls "$PKG_DIR"/*.ipk >/dev/null 2>&1; then
   exit 0
 fi
 
-# Prefer host tool, then scripts fallbacks
+# Prefer robust tools if present; otherwise use a built-in generator
 INDEXER=""
-INDEXER_IS_IPKG_SH=0
 if [ -x "$IB_DIR/staging_dir/host/bin/opkg-make-index" ]; then
   INDEXER="$IB_DIR/staging_dir/host/bin/opkg-make-index"
-elif [ -x "$IB_DIR/staging_dir/host/bin/ipkg-make-index" ]; then
-  INDEXER="$IB_DIR/staging_dir/host/bin/ipkg-make-index"
 elif [ -f "$IB_DIR/scripts/opkg-make-index.py" ]; then
   INDEXER="python3 $IB_DIR/scripts/opkg-make-index.py"
-elif [ -x "$IB_DIR/scripts/ipkg-make-index.sh" ]; then
-  INDEXER="$IB_DIR/scripts/ipkg-make-index.sh"
-  INDEXER_IS_IPKG_SH=1
 fi
 
-if [ -z "$INDEXER" ]; then
-  echo "[index-packages] 未找到 opkg/ipkg 索引脚本或工具，跳过" >&2
-  exit 0
-fi
+generate_custom_index() {
+  # Minimal, robust Packages generator avoiding fragile sed in ipkg-make-index.sh
+  # Fields: control content + Filename/Size/MD5sum/SHA256sum
+  : > Packages
+  for f in *.ipk; do
+    [ -f "$f" ] || continue
+    # Extract control data; some .ipk are simple tar.gz
+    CTRL=$(tar -xzOf "$f" ./control 2>/dev/null || true)
+    if [ -z "$CTRL" ]; then
+      # fallback: some variants store control under control.tar.gz
+      CTRL=$(ar p "$f" control.tar.gz 2>/dev/null | tar -xzO ./control 2>/dev/null || true)
+    fi
+    if [ -z "$CTRL" ]; then
+      echo "[index-packages] 跳过(无法读取 control): $f" >&2
+      continue
+    fi
+    # Append control as-is; ensure it ends with newline
+    printf "%s\n" "$CTRL" >> Packages
+    # Append supplemental fields
+    FILE_SIZE=$(wc -c <"$f" | tr -d ' ')
+    MD5=$(md5sum "$f" | awk '{print $1}')
+    SHA256=$(sha256sum "$f" | awk '{print $1}')
+    printf "Filename: %s\n" "$f" >> Packages
+    printf "Size: %s\n" "$FILE_SIZE" >> Packages
+    printf "MD5sum: %s\n" "$MD5" >> Packages
+    printf "SHA256sum: %s\n\n" "$SHA256" >> Packages
+  done
+  gzip -9nc Packages > Packages.gz
+}
 
-echo "[index-packages] 使用索引器: $INDEXER"
 (
   cd "$PKG_DIR"
-  if [ "$INDEXER_IS_IPKG_SH" -eq 1 ]; then
-    # ipkg-make-index.sh may hardcode 'sha256' command; provide a shim mapping to sha256sum
-    TOOLS_DIR="$IB_DIR/.index-tools"
-    mkdir -p "$TOOLS_DIR"
-    cat >"$TOOLS_DIR/sha256" <<'EOS'
-#!/bin/sh
-exec sha256sum "$@"
-EOS
-    chmod +x "$TOOLS_DIR/sha256"
-    # Prefer env var too, for variants honoring SHA256 variable
+  if [ -n "$INDEXER" ]; then
+    echo "[index-packages] 使用索引器: $INDEXER"
     # shellcheck disable=SC2086
-    PATH="$TOOLS_DIR:$PATH" SHA256=sha256sum $INDEXER . > Packages
+    if ! $INDEXER . > Packages 2>/dev/null; then
+      echo "[index-packages] 上述索引器失败，切换到内置生成器" >&2
+      generate_custom_index
+    else
+      gzip -9nc Packages > Packages.gz
+    fi
   else
-    # shellcheck disable=SC2086
-    $INDEXER . > Packages
+    echo "[index-packages] 使用内置 Packages 生成器"
+    generate_custom_index
   fi
-  gzip -9nc Packages > Packages.gz
 )
 
 echo "[index-packages] 已生成 packages/Packages(.gz)"
