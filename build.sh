@@ -9,7 +9,7 @@ OUTPUT_DIR="$SCRIPT_DIR/output"
 FILES_DIR="$SCRIPT_DIR/files"
 
 VERSION="24.10.3"
-IMAGEBUILDER_URL_DEFAULT="https://downloads.immortalwrt.org/releases/${VERSION}/targets/x86/64/immortalwrt-imagebuilder-${VERSION}-x86-64.Linux-x86_64.tar.xz"
+IMAGEBUILDER_URL_DEFAULT="https://downloads.immortalwrt.org/releases/${VERSION}/targets/x86/64/immortalwrt-imagebuilder-${VERSION}-x86-64.Linux-x86_64.tar.zst"
 IMAGEBUILDER_URL="${IMAGEBUILDER_URL:-$IMAGEBUILDER_URL_DEFAULT}"
 WGET_OPTS="--tries=3 --timeout=30 --retry-connrefused"
 
@@ -48,14 +48,22 @@ echo "[immortalwrt-image-build] DOCKER_TAGS=$DOCKER_TAG1,$DOCKER_TAG2 (build=$DO
 
 mkdir -p "$WORK_DIR" "$OUTPUT_DIR"
 
-IB_TAR="$WORK_DIR/ib.tar.xz"
+IB_EXT="${IMAGEBUILDER_URL##*.}"
+IB_TAR="$WORK_DIR/ib.tar.$IB_EXT"
 if [ ! -f "$IB_TAR" ]; then
   echo "[immortalwrt-image-build] 下载 ImageBuilder..."
   wget $WGET_OPTS -qO "$IB_TAR" "$IMAGEBUILDER_URL"
 fi
 
 echo "[immortalwrt-image-build] 解压 ImageBuilder..."
-tar -xJf "$IB_TAR" -C "$WORK_DIR"
+case "$IB_EXT" in
+  zst)
+    tar --zstd -xf "$IB_TAR" -C "$WORK_DIR" ;;
+  xz)
+    tar -xJf "$IB_TAR" -C "$WORK_DIR" ;;
+  *)
+    tar -xf "$IB_TAR" -C "$WORK_DIR" ;;
+esac
 IB_DIR=$(find "$WORK_DIR" -maxdepth 1 -type d -name "immortalwrt-imagebuilder-*x86-64*" | head -n 1)
 if [ -z "${IB_DIR:-}" ]; then
   echo "[immortalwrt-image-build] 未找到解压后的 ImageBuilder 目录" >&2
