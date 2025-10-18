@@ -1,5 +1,3 @@
 FROM scratch
-
-LABEL org.opencontainers.image.authors="lnexin"
-
-ADD *.tar.gz /
+ADD rootfs.tar.gz /
+CMD ["/sbin/init"]

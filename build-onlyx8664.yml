@@ -1,0 +1,77 @@
+name: onlyx8664-docker
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "ROOTFS 分区大小 (MB)"
+        required: true
+        default: "1024"
+      include_docker:
+        description: "是否包含 Dockerman UI (yes/no)"
+        required: true
+        default: "yes"
+      enable_pppoe:
+        description: "是否启用 PPPoE 首启配置 (yes/no)"
+        required: true
+        default: "no"
+      custom_packages:
+        description: "自定义附加/移除的包（留空为默认）"
+        required: false
+        default: ""
+      docker_push:
+        description: "是否推送 Docker 镜像到 Docker Hub"
+        required: true
+        default: "false"
+  push:
+    paths:
+      - 'immortalwrt-image-build/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker auth
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.docker_push == 'true' }}
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
+
+      - name: Build (manual with inputs)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          PROFILE: ${{ inputs.profile }}
+          INCLUDE_DOCKER: ${{ inputs.include_docker }}
+          ENABLE_PPPOE: ${{ inputs.enable_pppoe }}
+          CUSTOM_PACKAGES: ${{ inputs.custom_packages }}
+        run: |
+          if [ -f immortalwrt-image-build/build.sh ]; then
+            bash immortalwrt-image-build/build.sh -d
+          else
+            bash build.sh -d
+          fi
+
+      - name: Build (push with defaults)
+        if: ${{ github.event_name == 'push' }}
+        env:
+          PROFILE: 1024
+          INCLUDE_DOCKER: "yes"
+          ENABLE_PPPOE: "no"
+          CUSTOM_PACKAGES: ""
+        run: |
+          if [ -f immortalwrt-image-build/build.sh ]; then
+            bash immortalwrt-image-build/build.sh -d
+          else
+            bash build.sh -d
+          fi
+
+      - name: Push Docker image
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.docker_push == 'true' }}
+        run: |
+          docker push immortalwrt/x86-64:24.10
+          docker push immortalwrt/x86-64:24.10.3
