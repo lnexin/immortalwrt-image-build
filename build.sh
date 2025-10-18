@@ -107,16 +107,28 @@ fi
 
 # 包列表（与仓库 x86-64/build24.sh 对齐，可根据需要增删）
 PACKAGES=""
+# helper to append pkg only if local ipk exists
+add_if_local() {
+  pkg="$1"
+  if ls "$IB_DIR/packages/${pkg}_"*.ipk >/dev/null 2>&1; then
+    PACKAGES="$PACKAGES $pkg"
+  else
+    echo "[immortalwrt-image-build] 跳过(未找到本地 ipk): $pkg"
+  fi
+}
+
 PACKAGES="$PACKAGES curl"
 PACKAGES="$PACKAGES luci-i18n-diskman-zh-cn"
 PACKAGES="$PACKAGES luci-i18n-firewall-zh-cn"
 PACKAGES="$PACKAGES luci-theme-argon"
-PACKAGES="$PACKAGES luci-app-argon-config"
-PACKAGES="$PACKAGES luci-i18n-argon-config-zh-cn"
+# 仅当本地存在对应 ipk 时再加入，避免官方源缺失导致失败
+add_if_local luci-app-argon-config
+add_if_local luci-i18n-argon-config-zh-cn
 PACKAGES="$PACKAGES luci-i18n-package-manager-zh-cn"
 PACKAGES="$PACKAGES luci-i18n-ttyd-zh-cn"
-PACKAGES="$PACKAGES luci-i18n-passwall-zh-cn"
-PACKAGES="$PACKAGES luci-app-openclash"
+# 第三方包：仅当本地 packages/ 有对应 ipk 时才加入
+add_if_local luci-i18n-passwall-zh-cn
+add_if_local luci-app-openclash
 PACKAGES="$PACKAGES luci-i18n-homeproxy-zh-cn"
 PACKAGES="$PACKAGES openssh-sftp-server"
 PACKAGES="$PACKAGES luci-i18n-samba4-zh-cn"

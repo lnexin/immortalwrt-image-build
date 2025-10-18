@@ -39,9 +39,17 @@ echo "[index-packages] 使用索引器: $INDEXER"
 (
   cd "$PKG_DIR"
   if [ "$INDEXER_IS_IPKG_SH" -eq 1 ]; then
-    # ipkg-make-index.sh expects a 'sha256' binary by default; map to sha256sum on Ubuntu runners
+    # ipkg-make-index.sh may hardcode 'sha256' command; provide a shim mapping to sha256sum
+    TOOLS_DIR="$IB_DIR/.index-tools"
+    mkdir -p "$TOOLS_DIR"
+    cat >"$TOOLS_DIR/sha256" <<'EOS'
+#!/bin/sh
+exec sha256sum "$@"
+EOS
+    chmod +x "$TOOLS_DIR/sha256"
+    # Prefer env var too, for variants honoring SHA256 variable
     # shellcheck disable=SC2086
-    SHA256=sha256sum $INDEXER . > Packages
+    PATH="$TOOLS_DIR:$PATH" SHA256=sha256sum $INDEXER . > Packages
   else
     # shellcheck disable=SC2086
     $INDEXER . > Packages
