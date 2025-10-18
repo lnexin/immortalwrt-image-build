@@ -99,10 +99,10 @@ mkdir -p "$IB_DIR/extra-packages"
 cp -r "$TMP_STORE/run/x86"/* "$IB_DIR/extra-packages/" || true
 echo "[immortalwrt-image-build] 汇总 .ipk 至 ImageBuilder/packages"
 ( cd "$IB_DIR" && sh "$SCRIPT_DIR/shell/prepare-packages.sh" )
-# 如存在本地 IPK，则为 packages/ 建立索引，便于 ImageBuilder 识别
+# 如存在本地 IPK，则为 packages/ 建立索引（兼容不同 IB 版本）
 if [ -d "$IB_DIR/packages" ] && ls "$IB_DIR/packages"/*.ipk >/dev/null 2>&1; then
-  echo "[immortalwrt-image-build] 为本地 packages 建立索引(make package/index)"
-  ( cd "$IB_DIR" && make package/index )
+  echo "[immortalwrt-image-build] 为本地 packages 建立索引"
+  sh "$SCRIPT_DIR/shell/index-packages.sh" "$IB_DIR"
 fi
 
 # 包列表（与仓库 x86-64/build24.sh 对齐，可根据需要增删）
