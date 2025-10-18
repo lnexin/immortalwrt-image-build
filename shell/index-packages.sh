@@ -18,6 +18,7 @@ fi
 
 # Prefer host tool, then scripts fallbacks
 INDEXER=""
+INDEXER_IS_IPKG_SH=0
 if [ -x "$IB_DIR/staging_dir/host/bin/opkg-make-index" ]; then
   INDEXER="$IB_DIR/staging_dir/host/bin/opkg-make-index"
 elif [ -x "$IB_DIR/staging_dir/host/bin/ipkg-make-index" ]; then
@@ -26,6 +27,7 @@ elif [ -f "$IB_DIR/scripts/opkg-make-index.py" ]; then
   INDEXER="python3 $IB_DIR/scripts/opkg-make-index.py"
 elif [ -x "$IB_DIR/scripts/ipkg-make-index.sh" ]; then
   INDEXER="$IB_DIR/scripts/ipkg-make-index.sh"
+  INDEXER_IS_IPKG_SH=1
 fi
 
 if [ -z "$INDEXER" ]; then
@@ -36,11 +38,15 @@ fi
 echo "[index-packages] 使用索引器: $INDEXER"
 (
   cd "$PKG_DIR"
-  # Some indexers require pointing at current dir
-  # shellcheck disable=SC2086
-  $INDEXER . > Packages
+  if [ "$INDEXER_IS_IPKG_SH" -eq 1 ]; then
+    # ipkg-make-index.sh expects a 'sha256' binary by default; map to sha256sum on Ubuntu runners
+    # shellcheck disable=SC2086
+    SHA256=sha256sum $INDEXER . > Packages
+  else
+    # shellcheck disable=SC2086
+    $INDEXER . > Packages
+  fi
   gzip -9nc Packages > Packages.gz
 )
 
 echo "[index-packages] 已生成 packages/Packages(.gz)"
-
