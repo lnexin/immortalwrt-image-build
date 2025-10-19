@@ -1,0 +1,70 @@
+#!/bin/sh
+
+# Configure LAN and DNS settings from environment variables during boot.
+# Defaults are provided via Docker ENV instructions; users can override them
+# at runtime (e.g. docker run -e LAN_ADDR=...).
+
+set -u
+
+log() {
+  echo "[rc.local] $*"
+}
+
+if ! command -v uci >/dev/null 2>&1; then
+  log "uci not available, skipping network customisation"
+  exit 0
+fi
+
+update_network=0
+
+if [ -n "${LAN_ADDR:-}" ]; then
+  uci set network.lan.ipaddr="$LAN_ADDR"
+  update_network=1
+  log "Set LAN address to $LAN_ADDR"
+fi
+
+if [ -n "${LAN_GATEWAY:-}" ]; then
+  uci set network.lan.gateway="$LAN_GATEWAY"
+  update_network=1
+  log "Set LAN gateway to $LAN_GATEWAY"
+fi
+
+if [ -n "${LAN_DNS:-}" ]; then
+  uci set network.lan.dns="$LAN_DNS"
+  update_network=1
+  log "Set LAN DNS to $LAN_DNS"
+fi
+
+if [ "$update_network" -eq 1 ]; then
+  if uci commit network >/dev/null 2>&1; then
+    :
+  else
+    log "Warning: failed to commit network changes"
+  fi
+  if /sbin/ifup lan >/dev/null 2>&1; then
+    log "Applied LAN settings"
+  else
+    log "Warning: failed to apply LAN settings immediately"
+  fi
+fi
+
+if [ -n "${DNS_MASQ_SERVER:-}" ]; then
+  # Support comma or space separated list
+  servers=$(printf '%s' "$DNS_MASQ_SERVER" | tr ',' ' ')
+  uci delete dhcp.@dnsmasq[0].server 2>/dev/null || true
+  for srv in $servers; do
+    [ -n "$srv" ] && uci add_list dhcp.@dnsmasq[0].server="$srv"
+  done
+  if uci commit dhcp >/dev/null 2>&1; then
+    :
+  else
+    log "Warning: failed to commit dnsmasq changes"
+  fi
+  if /etc/init.d/dnsmasq restart >/dev/null 2>&1; then
+    log "Updated dnsmasq upstream servers: $servers"
+  else
+    log "Warning: failed to restart dnsmasq"
+  fi
+fi
+
+exit 0

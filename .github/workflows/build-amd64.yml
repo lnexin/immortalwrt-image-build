@@ -35,7 +35,7 @@ jobs:
       - name: Install image dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-utils
+          sudo apt-get install -y qemu-utils genisoimage
 
       - name: Sanitize PATH
         run: |
@@ -78,5 +78,5 @@ jobs:
       - name: Push Docker image
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.docker_push == 'true' }}
         run: |
-          docker push immortalwrt/x86-64:24.10
-          docker push immortalwrt/x86-64:24.10.3
+          docker push immortalwrt-amd64:latest
+          docker push immortalwrt-amd64:24.10.3

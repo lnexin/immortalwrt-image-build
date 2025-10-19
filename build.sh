@@ -14,10 +14,12 @@ IMAGEBUILDER_URL="${IMAGEBUILDER_URL:-$IMAGEBUILDER_URL_DEFAULT}"
 WGET_OPTS="--tries=3 --timeout=30 --retry-connrefused"
 
 # Docker 标签
-DOCKER_TAG1_DEFAULT="immortalwrt/x86-64:24.10"
-DOCKER_TAG2_DEFAULT="immortalwrt/x86-64:${VERSION}"
+DOCKER_TAG1_DEFAULT="immortalwrt-amd64:latest"
+DOCKER_TAG2_DEFAULT="immortalwrt-amd64:${VERSION}"
+DOCKER_TAG_Z4_DEFAULT="immortalwrt-amd64:z4"
 DOCKER_TAG1="${DOCKER_TAG1:-$DOCKER_TAG1_DEFAULT}"
 DOCKER_TAG2="${DOCKER_TAG2:-$DOCKER_TAG2_DEFAULT}"
+DOCKER_TAG_Z4="${DOCKER_TAG_Z4:-$DOCKER_TAG_Z4_DEFAULT}"
 
 # 构建参数（可通过环境变量覆盖）
 PROFILE="${PROFILE:-1024}"
@@ -46,7 +48,7 @@ echo "[immortalwrt-image-build] VERSION=$VERSION"
 echo "[immortalwrt-image-build] PROFILE=$PROFILE ROOTFS_PARTSIZE=${ROOTFS_PARTSIZE:-$PROFILE} INCLUDE_DOCKER=$INCLUDE_DOCKER"
 echo "[immortalwrt-image-build] ENABLE_PPPOE=$ENABLE_PPPOE"
 echo "[immortalwrt-image-build] IMAGEBUILDER_URL=$IMAGEBUILDER_URL"
-echo "[immortalwrt-image-build] DOCKER_TAGS=$DOCKER_TAG1,$DOCKER_TAG2 (build=$DOCKER_BUILD)"
+echo "[immortalwrt-image-build] DOCKER_TAGS=$DOCKER_TAG1,$DOCKER_TAG2,$DOCKER_TAG_Z4 (build=$DOCKER_BUILD)"
 echo "[immortalwrt-image-build] GRUB_BIOS_PARTSIZE=$GRUB_BIOS_PARTSIZE MiB"
 
 mkdir -p "$WORK_DIR" "$OUTPUT_DIR"
@@ -250,6 +252,8 @@ if [ "$DOCKER_BUILD" -eq 1 ]; then
   echo "[immortalwrt-image-build] 构建 Docker 镜像..."
   docker build -t "$DOCKER_TAG1" -t "$DOCKER_TAG2" -f "$SCRIPT_DIR/Dockerfile" "$OUTPUT_DIR"
   echo "[immortalwrt-image-build] 构建完成：$DOCKER_TAG1, $DOCKER_TAG2"
+  docker build --build-arg BASE_IMAGE="$DOCKER_TAG1" -t "$DOCKER_TAG_Z4" -f "$SCRIPT_DIR/Dockerfile.z4" "$SCRIPT_DIR"
+  echo "[immortalwrt-image-build] 构建完成：$DOCKER_TAG_Z4 (base=$DOCKER_TAG1)"
 fi
 
 echo "[immortalwrt-image-build] 完成"

@@ -1,0 +1,15 @@
+# syntax=docker/dockerfile:1.4
+ARG BASE_IMAGE=immortalwrt-amd64:latest
+FROM ${BASE_IMAGE}
+
+LABEL maintainer="xindu <xindu.zh@gmail.com>" \
+      org.opencontainers.image.base.name="${BASE_IMAGE}"
+
+ENV LAN_ADDR=192.168.123.100 \
+    LAN_GATEWAY=192.168.123.1 \
+    LAN_DNS=192.168.123.1 \
+    DNS_MASQ_SERVER=127.0.0.1
+
+ADD docker/rc.local /etc/rc.local # buildkit
+
+RUN chmod 755 /etc/rc.local
