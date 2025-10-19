@@ -32,10 +32,6 @@ jobs:
       DOCKER_TAG1: xindzh/immoralwrt-amd64:latest
       DOCKER_TAG2: xindzh/immoralwrt-amd64:24.10.3
       DOCKER_TAG_Z4: xindzh/immoralwrt-amd64:z4
-    env:
-      DOCKER_TAG1: xindzh/immoralwrt-amd64:latest
-      DOCKER_TAG2: xindzh/immoralwrt-amd64:24.10.3
-      DOCKER_TAG_Z4: xindzh/immoralwrt-amd64:z4
     steps:
       - name: Checkout
         uses: actions/checkout@v4
