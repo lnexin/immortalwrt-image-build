@@ -30,19 +30,47 @@ generate_custom_index() {
   : > Packages
   for f in *.ipk; do
     [ -f "$f" ] || continue
-    # Extract control data; some .ipk are simple tar.gz
-    CTRL=$(tar -xzOf "$f" ./control 2>/dev/null || true)
+    CTRL=""
+    if members=$(ar t "$f" 2>/dev/null); then
+      for candidate in control.tar.gz control.tar.xz control.tar.zst control.tar.bz2 control.tar; do
+        if printf '%s\n' "$members" | grep -Fqx "$candidate"; then
+          case "$candidate" in
+            control.tar.gz)
+              CTRL=$(ar p "$f" "$candidate" 2>/dev/null \
+                | tar -xzO ./control 2>/dev/null || true)
+              ;;
+            control.tar.xz)
+              CTRL=$(ar p "$f" "$candidate" 2>/dev/null \
+                | tar -xJO ./control 2>/dev/null || true)
+              ;;
+            control.tar.zst)
+              CTRL=$(ar p "$f" "$candidate" 2>/dev/null \
+                | tar --zstd -xO ./control 2>/dev/null || true)
+              ;;
+            control.tar.bz2)
+              CTRL=$(ar p "$f" "$candidate" 2>/dev/null \
+                | tar -xjO ./control 2>/dev/null || true)
+              ;;
+            control.tar)
+              CTRL=$(ar p "$f" "$candidate" 2>/dev/null \
+                | tar -xO ./control 2>/dev/null || true)
+              ;;
+          esac
+          [ -n "$CTRL" ] && break
+        fi
+      done
+    fi
     if [ -z "$CTRL" ]; then
-      # fallback: some variants store control under control.tar.gz
-      CTRL=$(ar p "$f" control.tar.gz 2>/dev/null | tar -xzO ./control 2>/dev/null || true)
+      CTRL=$(tar -xzO -f "$f" ./control 2>/dev/null || true)
+    fi
+    if [ -z "$CTRL" ]; then
+      CTRL=$(tar -xO -f "$f" ./control 2>/dev/null || true)
     fi
     if [ -z "$CTRL" ]; then
       echo "[index-packages] 跳过(无法读取 control): $f" >&2
       continue
     fi
-    # Append control as-is; ensure it ends with newline
     printf "%s\n" "$CTRL" >> Packages
-    # Append supplemental fields
     FILE_SIZE=$(wc -c <"$f" | tr -d ' ')
     MD5=$(md5sum "$f" | awk '{print $1}')
     SHA256=$(sha256sum "$f" | awk '{print $1}')

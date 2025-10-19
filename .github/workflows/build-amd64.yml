@@ -32,6 +32,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install image dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-utils
+
+      - name: Sanitize PATH
+        run: |
+          CLEAN_PATH=$(printf '%s' "$PATH" | tr ':' '\n' | awk '!/ /')
+          if [ -n "$CLEAN_PATH" ]; then
+            printf 'PATH=%s\n' "$(printf '%s\n' "$CLEAN_PATH" | paste -sd: -)" >> "$GITHUB_ENV"
+          fi
+
       - name: Set up Docker auth
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.docker_push == 'true' }}
         env:

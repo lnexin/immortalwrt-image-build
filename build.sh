@@ -110,10 +110,36 @@ PACKAGES=""
 # helper to append pkg only if local ipk exists
 add_if_local() {
   pkg="$1"
-  if ls "$IB_DIR/packages/${pkg}_"*.ipk >/dev/null 2>&1; then
+  if find "$IB_DIR/packages" -maxdepth 1 -type f -name "*${pkg}_*.ipk" -print -quit | grep -q .; then
     PACKAGES="$PACKAGES $pkg"
   else
-    echo "[immortalwrt-image-build] 跳过(未找到本地 ipk): $pkg"
+    echo "[immortalwrt-image-build] 跳过：未找到本地 ipk -> $pkg"
+  fi
+}
+
+clean_path_spaces() {
+  OLD_IFS=$IFS
+  IFS=:
+  NEW_PATH=""
+  CHANGED=0
+  for entry in $PATH; do
+    case "$entry" in
+      *\ *)
+        CHANGED=1
+        continue
+        ;;
+    esac
+    if [ -z "$NEW_PATH" ]; then
+      NEW_PATH="$entry"
+    else
+      NEW_PATH="$NEW_PATH:$entry"
+    fi
+  done
+  IFS=$OLD_IFS
+  if [ "$CHANGED" -eq 1 ] && [ -n "$NEW_PATH" ]; then
+    PATH="$NEW_PATH"
+    export PATH
+    echo "[immortalwrt-image-build] 已清理 PATH 中包含空格的条目"
   fi
 }
 
@@ -127,9 +153,12 @@ add_if_local luci-i18n-argon-config-zh-cn
 PACKAGES="$PACKAGES luci-i18n-package-manager-zh-cn"
 PACKAGES="$PACKAGES luci-i18n-ttyd-zh-cn"
 # 第三方包：仅当本地 packages/ 有对应 ipk 时才加入
-add_if_local luci-i18n-passwall-zh-cn
+add_if_local luci-app-passwall2
+add_if_local luci-i18n-passwall2-zh-cn
 add_if_local luci-app-openclash
-PACKAGES="$PACKAGES luci-i18n-homeproxy-zh-cn"
+# 第三方/可能缺失的包仅在本地存在时加入，避免源缺失导致 make 失败
+add_if_local luci-app-homeproxy
+add_if_local luci-i18n-homeproxy-zh-cn
 PACKAGES="$PACKAGES openssh-sftp-server"
 PACKAGES="$PACKAGES luci-i18n-samba4-zh-cn"
 PACKAGES="$PACKAGES luci-i18n-filemanager-zh-cn"
@@ -159,6 +188,8 @@ if echo "$PACKAGES" | grep -q "luci-app-openclash"; then
   wget $WGET_OPTS -q https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat -O "$IB_DIR/files/etc/openclash/GeoSite.dat"
 fi
 
+clean_path_spaces
+
 echo "[immortalwrt-image-build] 开始 make image..."
 ( cd "$IB_DIR" && \
   make image PROFILE="generic" PACKAGES="$PACKAGES" FILES="$IB_DIR/files" ROOTFS_PARTSIZE="${ROOTFS_PARTSIZE:-$PROFILE}" )
@@ -179,4 +210,3 @@ if [ "$DOCKER_BUILD" -eq 1 ]; then
 fi
 
 echo "[immortalwrt-image-build] 完成"
-
