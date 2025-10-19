@@ -124,7 +124,13 @@ clean_path_spaces() {
   CHANGED=0
   for entry in $PATH; do
     case "$entry" in
-      *\ *)
+      ""|*\ *)
+        CHANGED=1
+        continue
+        ;;
+      /*|./*|../*|~/*)
+        ;;
+      *)
         CHANGED=1
         continue
         ;;
@@ -136,10 +142,14 @@ clean_path_spaces() {
     fi
   done
   IFS=$OLD_IFS
-  if [ "$CHANGED" -eq 1 ] && [ -n "$NEW_PATH" ]; then
+  if [ -z "$NEW_PATH" ]; then
+    NEW_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    CHANGED=1
+  fi
+  if [ "$CHANGED" -eq 1 ]; then
     PATH="$NEW_PATH"
     export PATH
-    echo "[immortalwrt-image-build] 已清理 PATH 中包含空格的条目"
+    echo "[immortalwrt-image-build] 已清理 PATH 中的无效或含空格条目"
   fi
 }
 

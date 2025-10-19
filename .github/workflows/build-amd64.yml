@@ -39,10 +39,13 @@ jobs:
 
       - name: Sanitize PATH
         run: |
-          CLEAN_PATH=$(printf '%s' "$PATH" | tr ':' '\n' | awk '!/ /')
-          if [ -n "$CLEAN_PATH" ]; then
-            printf 'PATH=%s\n' "$(printf '%s\n' "$CLEAN_PATH" | paste -sd: -)" >> "$GITHUB_ENV"
+          CLEAN_PATH=$(printf '%s' "$PATH" | tr ':' '\n' | awk '!/ / && (/^(\/|\.\/|\.\.\/|~\/)/)')
+          if [ -z "$CLEAN_PATH" ]; then
+            CLEAN_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+          else
+            CLEAN_PATH=$(printf '%s\n' "$CLEAN_PATH" | paste -sd: -)
           fi
+          printf 'PATH=%s\n' "$CLEAN_PATH" >> "$GITHUB_ENV"
 
       - name: Set up Docker auth
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.docker_push == 'true' }}
