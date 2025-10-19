@@ -237,7 +237,9 @@ clean_path_spaces
 echo "[immortalwrt-image-build] 开始 make image..."
 ( cd "$IB_DIR" && \
   make image PROFILE="generic" PACKAGES="$PACKAGES" FILES="$IB_DIR/files" \
-    ROOTFS_PARTSIZE="${ROOTFS_PARTSIZE:-$PROFILE}" GRUB_BIOS_PARTSIZE="$GRUB_BIOS_PARTSIZE" )
+    ROOTFS_PARTSIZE="${ROOTFS_PARTSIZE:-$PROFILE}" \
+    GRUB_BIOS_PARTSIZE="$GRUB_BIOS_PARTSIZE" \
+    CONFIG_GRUB_BIOS_PARTSIZE="$GRUB_BIOS_PARTSIZE" )
 
 echo "[immortalwrt-image-build] 搜索 rootfs tar..."
 ROOTFS_TAR=$(find "$IB_DIR/bin/targets/x86/64" -type f -name "*rootfs.tar.gz" | head -n 1 || true)
