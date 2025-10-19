@@ -109,11 +109,40 @@ fi
 PACKAGES=""
 # helper to append pkg only if local ipk exists
 add_if_local() {
-  pkg="$1"
-  if find "$IB_DIR/packages" -maxdepth 1 -type f -name "*${pkg}_*.ipk" -print -quit | grep -q .; then
-    PACKAGES="$PACKAGES $pkg"
+  query="$1"
+  [ -f "$IB_DIR/packages/Packages" ] || {
+    echo "[immortalwrt-image-build] 跳过：packages 索引缺失 -> $query"
+    return
+  }
+
+  # Find the actual package name in Packages index: prefer exact match, fallback to substring.
+  actual_pkg=$(awk -v q="$query" '
+    $1 == "Package:" {
+      pkg = $2
+      if (pkg == q) {
+        print pkg
+        exit
+      }
+      if (index(pkg, q) && found == "") {
+        found = pkg
+      }
+    }
+    END {
+      if (NR && found != "") print found
+    }
+  ' "$IB_DIR/packages/Packages")
+
+  if [ -z "${actual_pkg:-}" ]; then
+    # Fallback: rely on filename pattern
+    actual_pkg="$query"
+  fi
+
+  local_ipk=$(find "$IB_DIR/packages" -maxdepth 1 -type f -name "*${actual_pkg}_*.ipk" | head -n 1 || true)
+
+  if [ -n "$local_ipk" ] && grep -Fqx "Package: ${actual_pkg}" "$IB_DIR/packages/Packages"; then
+    PACKAGES="$PACKAGES $actual_pkg"
   else
-    echo "[immortalwrt-image-build] 跳过：未找到本地 ipk -> $pkg"
+    echo "[immortalwrt-image-build] 跳过：未找到可用本地包 -> $query"
   fi
 }
 
