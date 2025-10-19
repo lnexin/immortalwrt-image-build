@@ -30,6 +30,8 @@ CUSTOM_PACKAGES="${CUSTOM_PACKAGES:-}"
 ROOTFS_PARTSIZE="${ROOTFS_PARTSIZE:-$PROFILE}"
 # 可选：注入自定义路由器 IP（供 99-custom.sh 读取）
 CUSTOM_ROUTER_IP="${CUSTOM_ROUTER_IP:-}"
+# BIOS 启动分区大小（MiB），默认 16，可通过环境变量覆盖
+GRUB_BIOS_PARTSIZE="${GRUB_BIOS_PARTSIZE:-16}"
 
 DOCKER_BUILD=0
 while getopts ":dt:" opt; do
@@ -45,6 +47,7 @@ echo "[immortalwrt-image-build] PROFILE=$PROFILE ROOTFS_PARTSIZE=${ROOTFS_PARTSI
 echo "[immortalwrt-image-build] ENABLE_PPPOE=$ENABLE_PPPOE"
 echo "[immortalwrt-image-build] IMAGEBUILDER_URL=$IMAGEBUILDER_URL"
 echo "[immortalwrt-image-build] DOCKER_TAGS=$DOCKER_TAG1,$DOCKER_TAG2 (build=$DOCKER_BUILD)"
+echo "[immortalwrt-image-build] GRUB_BIOS_PARTSIZE=$GRUB_BIOS_PARTSIZE MiB"
 
 mkdir -p "$WORK_DIR" "$OUTPUT_DIR"
 
@@ -231,7 +234,8 @@ clean_path_spaces
 
 echo "[immortalwrt-image-build] 开始 make image..."
 ( cd "$IB_DIR" && \
-  make image PROFILE="generic" PACKAGES="$PACKAGES" FILES="$IB_DIR/files" ROOTFS_PARTSIZE="${ROOTFS_PARTSIZE:-$PROFILE}" )
+  make image PROFILE="generic" PACKAGES="$PACKAGES" FILES="$IB_DIR/files" \
+    ROOTFS_PARTSIZE="${ROOTFS_PARTSIZE:-$PROFILE}" GRUB_BIOS_PARTSIZE="$GRUB_BIOS_PARTSIZE" )
 
 echo "[immortalwrt-image-build] 搜索 rootfs tar..."
 ROOTFS_TAR=$(find "$IB_DIR/bin/targets/x86/64" -type f -name "*rootfs.tar.gz" | head -n 1 || true)
